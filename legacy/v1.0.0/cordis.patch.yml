@@ -1,0 +1,30 @@
+# dsh-anima-wardrobe bundle patch
+#
+# 右侧栏面板 + 对话内出图工具（anima_draw）。
+# 改完这个文件后重启 DSH 生效。
+#
+# 可调项：
+#   comfyUrl        ComfyUI 地址
+#   outputRoot      ComfyUI 的 --output-directory（面板「出图」区读这里）。不写则用内置默认值。
+#   imageRelDir     出图相对子目录，要和工作流里 SaveImage 的 filename_prefix 前缀一致
+#   workflowFile    你自己的 UI 格式工作流 json（可选：面板首次初始化 + 「写回工作流 JSON」的目标）
+#   templateFile    留空使用包内 templates/anima_api.json（API 格式模板）
+#   fieldsFile      留空使用包内 templates/fields.json（三层权重的字段清单）
+#   timeoutMs       单次出图超时（毫秒）
+#   pollIntervalMs  /history 轮询间隔（毫秒）
+#   comfyPython     启动 ComfyUI 用的 python 解释器；留空自动探测
+#   launchLogPath   启动日志路径；留空写到 $DSH_HOME/anima-wardrobe-comfy.log
+- insert:
+    - id: anima-wardrobe
+      name: 'dsh-anima-wardrobe'
+      config:
+        comfyUrl: 'http://127.0.0.1:8188'
+        # ↓ 改成你自己 ComfyUI 的 --output-directory
+        outputRoot: 'D:\Comfy-Desktop\ComfyUI-Shared\output'
+        imageRelDir: '图片/Anima/ANIMA12'
+        # 你自己的 UI 格式工作流（可选）
+        # workflowFile: 'C:\path\to\V5-Anima_xxx.json'
+        templateFile: ''
+        fieldsFile: ''
+        timeoutMs: 900000
+        pollIntervalMs: 1200

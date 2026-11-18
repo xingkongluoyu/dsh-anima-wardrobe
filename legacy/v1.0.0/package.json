@@ -1,0 +1,45 @@
+{
+  "name": "dsh-anima-wardrobe",
+  "version": "1.0.0",
+  "description": "把 AnimaWardrobe V5 工作流搬进 DeepSeek Harness：右侧栏面板控制 CLIP/VAE/UNet/画幅/采样/负向词/质量词/LoRA/三层权重/角色与作品，并提供 anima_draw 对话内出图工具。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg",
+    "./templates/*": "./templates/*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "slots"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "templates/*.json",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "comfyui",
+    "anima",
+    "animaware",
+    "lora",
+    "text-to-image",
+    "stable-diffusion"
+  ],
+  "license": "MIT"
+}

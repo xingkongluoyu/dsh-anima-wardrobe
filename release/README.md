@@ -1,11 +1,13 @@
-﻿# release
+# release
 
-`dsh-anima-wardrobe-1.1.1.tgz` 是打包好的插件，用于直接安装：
+`dsh-anima-wardrobe-1.3.3.tgz` —— 当前版本的打包产物（8 个文件，约 83 KB）。
 
-```bash
-dsh plugin add file:<本目录下该 tgz 的绝对路径>
+安装：
+
+```
+dsh plugin add file:<绝对路径>/dsh-anima-wardrobe-1.3.3.tgz
 ```
 
-也可以在 GUI 的插件管理器里选择这个 tarball。
+或直接拖进 DSH 的插件管理界面。装完完全退出 DSH 再重开。
 
-装完**完全退出 DSH 再重开**。安装后在左侧边栏底部（设置齿轮旁）会出现 **Anima** 按钮。
+历史版本的 tgz 在 `../legacy/` 下（1.1.1 那份带 tgz，1.0.0 只有源码）。

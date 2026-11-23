@@ -1,7 +1,7 @@
 {
   "name": "dsh-anima-wardrobe",
-  "version": "1.1.1",
-  "description": "把 AnimaWardrobe V5/V6 工作流搬进 DeepSeek Harness：右侧栏面板控制 CLIP/VAE/UNet/画幅/采样/负向词/质量词/LoRA/三层权重/角色与作品/场景锁，并提供 anima_draw 对话内出图工具。",
+  "version": "1.3.3",
+  "description": "把 AnimaWardrobe V5/V6 工作流搬进 DeepSeek Harness：右侧栏面板控制 CLIP/VAE/UNet/画幅/采样/负向词/质量词/LoRA/三层权重/角色与作品，显示并停用 ComfyUI 侧的全局套用，内嵌原版随机提示词面板，并提供 anima_draw 对话内出图工具。",
   "type": "module",
   "main": "index.js",
   "exports": {

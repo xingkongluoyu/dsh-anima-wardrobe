@@ -21,6 +21,13 @@ const DSH_HOME = process.env.DSH_HOME ?? path.join(HOME, '.dsh')
 const APPDATA = process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming')
 
 /** 工作流里我们用到的节点 id（模板与 UI JSON 共用）。 */
+const normalizeWorkflowName = (file) => {
+  const text = String(file ?? '').trim()
+  if (!text) return ''
+  const parts = text.split(/[\\/]/u)
+  return parts[parts.length - 1] || ''
+}
+
 const NID = {
   clip: '1002',
   vae: '1003',
@@ -59,10 +66,14 @@ const DEFAULTS = {
   outputRoot: 'D:\\Comfy-Desktop\\ComfyUI-Shared\\output',
   imageRelDir: '图片/Anima/ANIMA12',
   workflowFile: 'C:\\Users\\pc\\Downloads\\V5-Anima_miaomiaoHarem_anima.json',
+  workflowFileComfy: '',
   templateFile: '',
   fieldsFile: '',
   // 角色库位置：留空 = 自动在下面的 ROSTER_FALLBACKS 里找（V6 优先，再 V5）。
   charactersFile: '',
+  // AnimaWardrobe 的 presets 目录（含 outfit_library.json / character_outfits.json）。
+  // 留空 = 自动探测 Comfyui-Anima-Wardrobe-V6 → V5。
+  presetDir: '',
   timeoutMs: 900000,
   pollIntervalMs: 1200,
   statePath: path.join(DSH_HOME, 'anima-wardrobe.json'),
@@ -72,6 +83,11 @@ const DEFAULTS = {
   comfyPython: '',
   comfyWorkdir: '',
   comfyArgs: '',
+  // ComfyUI 会在 Host 与 Origin 域名不一致时返回 403（server.py:214-233）。
+  // 把 ComfyUI 嵌进面板 iframe 时 Origin 就是 DSH 的地址，必然不一致 → 整页 403。
+  // 加 --enable-cors-header 会让 ComfyUI 换用 CORS 中间件、不再做这个校验；
+  // 只想自己用就别改，介意的话设成 false（面板里仍可用「新窗口」）。
+  comfyCors: true,
   launchLogPath: path.join(DSH_HOME, 'anima-wardrobe-comfy.log'),
   workflowId: 'anima-wardrobe',
 }
@@ -429,6 +445,7 @@ async function resolveLaunchSpec(cfg) {
   const outputDir = String(desktopSettings?.outputDir ?? '').trim()
 
   const args = ['-s', mainRel, '--enable-assets', '--enable-manager']
+  if (cfg.comfyCors !== false) args.push('--enable-cors-header', '*')
   if (modelPathsConfig !== '') args.push('--extra-model-paths-config', modelPathsConfig)
   if (inputDir !== '') args.push('--input-directory', inputDir)
   if (outputDir !== '') args.push('--output-directory', outputDir)
@@ -953,9 +970,42 @@ async function readJsonFile(file) {
   return JSON.parse(raw.replace(/^\uFEFF/u, ''))
 }
 
+const COMFY_WORKFLOW_ROOTS = [
+  'D:\\Comfy-Desktop\\ComfyUI-Installs\\ComfyUI\\ComfyUI',
+]
+
+let comfyWfCache = { key: '', file: '', at: 0 }
+
+/** ComfyUI 自己的那份工作流文件（user/default/workflows/<同名>）。找不到返回 ''。 */
+async function comfyWorkflowFile(cfg) {
+  const name = normalizeWorkflowName(cfg.workflowFile) || normalizeWorkflowName(cfg.workflowFileComfy)
+  const roots = []
+  if (cfg.comfyWorkdir) {
+    roots.push(path.join(cfg.comfyWorkdir, 'ComfyUI'), cfg.comfyWorkdir)
+  }
+  roots.push(...COMFY_WORKFLOW_ROOTS)
+  const key = String(cfg.workflowFileComfy ?? '') + '|' + name + '|' + roots.join(';')
+  if (comfyWfCache.key === key && Date.now() - comfyWfCache.at < 30000) return comfyWfCache.file
+  const candidates = []
+  if (cfg.workflowFileComfy) candidates.push(cfg.workflowFileComfy)
+  if (name) for (const root of roots) candidates.push(path.join(root, 'user', 'default', 'workflows', name))
+  let found = ''
+  for (const candidate of candidates) {
+    if (await exists(candidate)) { found = candidate; break }
+  }
+  comfyWfCache = { key, file: found, at: Date.now() }
+  return found
+}
+
+/** 读写的目标文件：优先 ComfyUI 那份，其次配置里的 workflowFile。 */
+async function targetWorkflowFile(cfg) {
+  return (await comfyWorkflowFile(cfg)) || cfg.workflowFile
+}
+
 async function loadUiWorkflow(cfg) {
-  if (!cfg.workflowFile) throw new Error('没有配置 workflowFile（UI 格式工作流 JSON）')
-  const json = await readJsonFile(cfg.workflowFile)
+  const file = await targetWorkflowFile(cfg)
+  if (!file) throw new Error('没有配置 workflowFile（UI 格式工作流 JSON）')
+  const json = await readJsonFile(file)
   const byId = new Map()
   for (const node of json.nodes ?? []) byId.set(String(node.id), node)
   return { json, byId }
@@ -1788,14 +1838,290 @@ async function writeBackWorkflow(cfg, settings, log) {
     animaNode.widgets_values = wv
   }
 
-  const backup = `${cfg.workflowFile}.bak-${formatDate('yyyyMMdd-HHmmss')}`
-  await fsp.copyFile(cfg.workflowFile, backup)
-  await fsp.writeFile(cfg.workflowFile, JSON.stringify(ui.json, null, 2), 'utf8')
-  log?.('info', `写回工作流 JSON：${changed.length} 项 → ${cfg.workflowFile}（备份 ${path.basename(backup)}）`)
-  return { ok: true, changed, backup }
+  const target = await targetWorkflowFile(cfg)
+  if (!target) throw new Error('找不到要写回的工作流文件')
+  const backup = `${target}.bak-${formatDate('yyyyMMdd-HHmmss')}`
+  await fsp.copyFile(target, backup)
+  await fsp.writeFile(target, JSON.stringify(ui.json, null, 2), 'utf8')
+  log?.('info', `写回工作流 JSON：${changed.length} 项 → ${target}（备份 ${path.basename(backup)}）`)
+  return { ok: true, changed, backup, target }
 }
 
 /* -------------------------------------------------------------- HTTP dispatch ---- */
+
+/* ------------------------------------------------------------- applied ---- */
+
+/**
+ * 「当前套用」快照。
+ *
+ * 分两类：
+ *   · global —— ComfyUI 侧的全局状态，写在 presets 文件里，改了立刻影响所有出图（可以真停用）
+ *   · node   —— ComfyUI 工作流节点内存里的值（scene_pick / forced / 勾选池），
+ *               我们改文件也不会让那个工作流生效，所以只提示「去弹窗里停用」
+ */
+const CHAR_OUTFIT_FILE = 'character_outfits.json'
+const OUTFIT_LIB_FILE = 'outfit_library.json'
+const V6_PREFIX = '/anima-wardrobe-v6'
+
+let presetDirCache = ''
+let outfitLibCache = { file: '', mtime: 0, data: null }
+let charOutfitCache = { file: '', mtime: 0, map: new Map() }
+
+function presetDirCandidates(cfg) {
+  const roots = [
+    cfg.comfyWorkdir ? path.join(cfg.comfyWorkdir, 'ComfyUI', 'custom_nodes') : '',
+    cfg.comfyWorkdir ? path.join(cfg.comfyWorkdir, 'custom_nodes') : '',
+    'D:\\Comfy-Desktop\\ComfyUI-Installs\\ComfyUI\\ComfyUI\\custom_nodes',
+  ].filter(Boolean)
+  const dirs = []
+  for (const name of ['Comfyui-Anima-Wardrobe-V6', 'Comfyui-Anima-Wardrobe-V5']) {
+    for (const root of roots) dirs.push(path.join(root, name, 'presets'))
+  }
+  return dirs
+}
+
+async function fileExists(file) {
+  try {
+    await fsp.access(file)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function resolvePresetDir(cfg) {
+  if (cfg.presetDir) return cfg.presetDir
+  if (presetDirCache) return presetDirCache
+  for (const dir of presetDirCandidates(cfg)) {
+    if (await fileExists(path.join(dir, OUTFIT_LIB_FILE)) || await fileExists(path.join(dir, CHAR_OUTFIT_FILE))) {
+      presetDirCache = dir
+      return dir
+    }
+  }
+  return ''
+}
+
+async function readOutfitLibrary(presetDir) {
+  const file = path.join(presetDir, OUTFIT_LIB_FILE)
+  const stat = await fsp.stat(file)
+  if (outfitLibCache.file === file && outfitLibCache.mtime === stat.mtimeMs && outfitLibCache.data) {
+    return outfitLibCache.data
+  }
+  const raw = JSON.parse(await fsp.readFile(file, 'utf8'))
+  const meta = raw?._meta ?? {}
+  const list = Array.isArray(raw?.outfits) ? raw.outfits : []
+  const activeId = String(meta?.active ?? '').trim()
+  const hit = activeId ? list.find((item) => String(item?.id ?? '') === activeId) : null
+  const data = {
+    active: activeId ? { id: activeId, zh: String(hit?.zh ?? activeId), cat: String(hit?.cat ?? '') } : null,
+    pool: {
+      on: meta?.pool?.on === true,
+      count: Array.isArray(meta?.pool?.ids) ? meta.pool.ids.length : 0,
+      cats: Array.isArray(meta?.pool?.cats) ? meta.pool.cats.map(String) : [],
+    },
+    socks: String(meta?.overrides?.socks ?? '').trim(),
+    shoes: String(meta?.overrides?.shoes ?? '').trim(),
+    sceneOverride: meta?.scene_override === true,
+    total: Number(meta?.count ?? list.length) || list.length,
+  }
+  outfitLibCache = { file, mtime: stat.mtimeMs, data }
+  return data
+}
+
+/** 角色服装预设：只抽 enabled 那一套（文件 19 MB，不整份留在内存里）。 */
+async function readCharOutfits(presetDir) {
+  const file = path.join(presetDir, CHAR_OUTFIT_FILE)
+  const stat = await fsp.stat(file)
+  if (charOutfitCache.file === file && charOutfitCache.mtime === stat.mtimeMs) return charOutfitCache.map
+  const raw = JSON.parse(await fsp.readFile(file, 'utf8'))
+  const map = new Map()
+  for (const [role, rec] of Object.entries(raw?.outfits ?? {})) {
+    const id = String(rec?.enabled ?? '').trim()
+    if (!id) continue
+    const hit = (Array.isArray(rec?.list) ? rec.list : []).find((item) => String(item?.id ?? '') === id)
+    const value = { id, zh: String(hit?.zh ?? id), role }
+    // 文件里的键是 danbooru tag 写法（hyacine_(honkai:_star_rail)），
+    // 而节点/面板用的是 trigger 写法（hyacine, honkai: star rail），两种都建索引。
+    map.set(role, value)
+    const alias = String(role).replace(/^(.+?)_\(([^()]+)\)$/u, (_all, name, work) => `${name}, ${String(work).replace(/_/gu, ' ')}`)
+    if (alias && alias !== role) map.set(alias, value)
+  }
+  charOutfitCache = { file, mtime: stat.mtimeMs, map }
+  return map
+}
+
+/** 最近一次提交的工作流里，1145 节点上的三个「节点项」。 */
+async function readLastNodeInputs(cfg) {
+  try {
+    const res = await fetch(`${cfg.comfyUrl}/history?max_items=1`)
+    if (!res.ok) return null
+    const body = await res.json()
+    const entries = Object.values(body ?? {})
+    const api = entries[0]?.prompt?.[2]
+    const inputs = api?.[NID.anima]?.inputs
+    if (!inputs) return null
+    let forced = ''
+    try {
+      const parsed = JSON.parse(String(inputs.weights_json ?? '{}'))
+      forced = String(parsed?.forced?.n_canon ?? '').trim()
+    } catch { /* 旧格式没有 forced */ }
+    return {
+      scenePick: inputs.scene_pick === true,
+      forcedScene: forced,
+      poolMode: String(inputs.pick_pool_mode ?? '').trim(),
+      poolIds: String(inputs.pick_pool_ids ?? '').trim(),
+      selectedRoles: String(inputs.selected_roles ?? '').trim(),
+      roleWorks: String(inputs.role_works ?? '').trim(),
+      nsfwLevel: String(inputs.nsfw_level ?? '').trim(),
+    }
+  } catch {
+    return null
+  }
+}
+
+async function buildApplied(cfg, log, settings) {
+  const presetDir = await resolvePresetDir(cfg)
+  const global = []
+  const node = []
+  let warning = ''
+  if (!presetDir) {
+    warning = '没找到 AnimaWardrobe 的 presets 目录（可在配置里指定 presetDir）'
+  } else {
+    try {
+      const lib = await readOutfitLibrary(presetDir)
+      if (lib.active) {
+        global.push({
+          key: 'outfit_active',
+          label: '服装库',
+          detail: lib.active.cat ? `${lib.active.zh} · ${lib.active.cat}` : lib.active.zh,
+          disable: { item: 'outfit_active' },
+        })
+      }
+      if (lib.pool.on) {
+        global.push({
+          key: 'outfit_pool',
+          label: '池化随机',
+          detail: `开启 · ${lib.pool.cats.join(' / ') || '全部'}${lib.pool.count ? `（${lib.pool.count} 套）` : ''}`,
+          disable: { item: 'outfit_pool' },
+        })
+      }
+      if (lib.socks) global.push({ key: 'outfit_socks', label: '袜子覆盖', detail: lib.socks, disable: { item: 'outfit_socks' } })
+      if (lib.shoes) global.push({ key: 'outfit_shoes', label: '鞋子覆盖', detail: lib.shoes, disable: { item: 'outfit_shoes' } })
+      if (lib.sceneOverride) {
+        global.push({
+          key: 'outfit_scene_override',
+          label: '场景服装',
+          detail: '服装库会覆盖场景推荐服装',
+          disable: { item: 'outfit_scene_override' },
+        })
+      }
+    } catch (error) {
+      log?.('warn', `读 outfit_library.json 失败：${error?.message ?? error}`)
+    }
+    try {
+      const map = await readCharOutfits(presetDir)
+      // 只有「当前明确指定的角色」才可能用到角色服装预设；没选角色（全库随机）时不提示，
+      // 否则会把这条当成正在生效的全局项误导用户。
+      const wanted = String(settings?.charPick || settings?.selectedRoles || '').trim()
+      const roleKey = wanted ? normalizeRoleToken(wanted).toLowerCase() : ''
+      const hit = roleKey ? map.get(roleKey) : null
+      if (hit) {
+        global.push({
+          key: 'char_outfit',
+          label: '角色服装预设',
+          detail: `当前角色「${roleKey}」启用：${hit.zh || hit.id}`,
+          roles: [hit.role ?? hit.roleKey ?? roleKey],
+          disable: { item: 'char_outfit', roles: [hit.role ?? hit.roleKey ?? roleKey] },
+        })
+      }
+    } catch (error) {
+      log?.('warn', `读 character_outfits.json 失败：${error?.message ?? error}`)
+    }
+  }
+  const last = await readLastNodeInputs(cfg)
+  if (last) {
+    if (last.scenePick) {
+      node.push({ key: 'scene_pick', label: '场景搭配', detail: '整库按档位随机', hint: '去弹窗里停用' })
+    }
+    if (last.forcedScene) {
+      node.push({ key: 'forced_scene', label: '定点锁定', detail: last.forcedScene, hint: '去弹窗里停用' })
+    }
+    if (last.poolMode || last.poolIds) {
+      node.push({
+        key: 'pick_pool',
+        label: '勾选池',
+        detail: `${last.poolMode || 'pool'}${last.poolIds ? ` · ${last.poolIds.slice(0, 40)}` : ''}`,
+        hint: '去弹窗里停用',
+      })
+    }
+  }
+  return { presetDir, global, node, last, warning }
+}
+
+async function v6Post(cfg, suffix, body) {
+  const res = await fetch(`${cfg.comfyUrl}${V6_PREFIX}${suffix}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  const text = await res.text()
+  let json = null
+  try {
+    json = JSON.parse(text)
+  } catch { /* 非 JSON 响应 */ }
+  if (!res.ok) {
+    throw new Error(json?.error ?? json?.message ?? `AnimaWardrobe 返回 HTTP ${res.status}`)
+  }
+  return json ?? {}
+}
+
+const DISABLE_ALL_ITEMS = ['outfit_active', 'outfit_pool', 'outfit_socks', 'outfit_shoes', 'outfit_scene_override', 'char_outfit']
+
+async function disableApplied(cfg, log, item, roles) {
+  if (item === 'all') {
+    const done = []
+    for (const each of DISABLE_ALL_ITEMS) {
+      try {
+        await disableApplied(cfg, log, each)
+        done.push(each)
+      } catch (error) {
+        log?.('warn', `停用 ${each} 失败：${error?.message ?? error}`)
+      }
+    }
+    return { disabled: done }
+  }
+  switch (item) {
+    case 'outfit_active':
+      await v6Post(cfg, '/outfit-library/enable', { id: '' })
+      break
+    case 'outfit_pool':
+      await v6Post(cfg, '/outfit-library/pool', { on: false })
+      break
+    case 'outfit_socks':
+      await v6Post(cfg, '/outfit-library/override', { field: 'socks', value: '' })
+      break
+    case 'outfit_shoes':
+      await v6Post(cfg, '/outfit-library/override', { field: 'shoes', value: '' })
+      break
+    case 'outfit_scene_override':
+      await v6Post(cfg, '/outfit-library/scene-override', { enabled: false })
+      break
+    case 'char_outfit': {
+      const presetDir = await resolvePresetDir(cfg)
+      if (!presetDir) throw new Error('没找到 presets 目录')
+      const map = await readCharOutfits(presetDir)
+      const targets = Array.isArray(roles) && roles.length ? roles.filter((role) => typeof role === 'string') : [...map.keys()]
+      for (const role of targets) await v6Post(cfg, '/outfits/enable', { role, id: '' })
+      charOutfitCache = { file: '', mtime: 0, map: new Map() }
+      break
+    }
+    default:
+      throw new Error(`未知的套用项：${item}`)
+  }
+  // 让下一次读取绕过缓存（V6 写完会 clear_cache，我们这边也要重读文件）
+  outfitLibCache = { file: '', mtime: 0, data: null }
+  return { disabled: [item] }
+}
 
 async function handleRequest(cfg, log, req, res, getSettings, setSettings) {
   if (!isLocalRequest(req)) {
@@ -1881,9 +2207,80 @@ async function handleRequest(cfg, log, req, res, getSettings, setSettings) {
       respondJson(res, { ok: true, path: cfg.diagPath, log: text })
       return
     }
+    if (pathname.endsWith('/sync-from-comfy.json')) {
+      if (method !== 'POST') {
+        respondJson(res, { ok: false, reason: '只支持 POST' }, 405)
+        return
+      }
+      const current = await getSettings()
+      let fresh
+      try {
+        fresh = await seedStateFromWorkflow(cfg, log)
+      } catch (error) {
+        respondJson(res, { ok: false, reason: `读取工作流失败：${error?.message ?? error}` })
+        return
+      }
+      const merged = { ...fresh }
+      const keep = ['modelProfiles', 'loraPresets', 'panelWeights', 'followPanel', 'useTiledVae', 'roleFeature', 'comfyCors', 'presetDir', 'diagPath', 'drySkinFilter', 'duoRoleFill', 'forcedScene']
+      for (const key of keep) {
+        if (current && current[key] !== undefined) merged[key] = current[key]
+      }
+      const next = normalizeState(merged)
+      await setSettings(next)
+      const source = await targetWorkflowFile(cfg)
+      log?.('info', `从 ComfyUI 工作流同步：${source}`)
+      respondJson(res, { ok: true, state: next, source })
+      return
+    }
     if (pathname.endsWith('/writeback.json')) {
       const settings = await getSettings()
       respondJson(res, await writeBackWorkflow(cfg, settings, log))
+      return
+    }
+    if (pathname.endsWith('/applied.json')) {
+      const appliedSettings = await getSettings()
+      const snapshot = await buildApplied(cfg, log, appliedSettings)
+      respondJson(res, {
+        ok: true,
+        online: await probeComfy(cfg),
+        presetDir: snapshot.presetDir,
+        warning: snapshot.warning,
+        global: snapshot.global,
+        node: snapshot.node,
+        last: snapshot.last,
+      })
+      return
+    }
+    if (pathname.endsWith('/disable.json')) {
+      if (method !== 'POST') {
+        respondJson(res, { ok: false, reason: 'method not allowed' }, 405)
+        return
+      }
+      const body = await readBody(req)
+      const item = String(body.item ?? '').trim()
+      if (!item) {
+        respondJson(res, { ok: false, reason: '缺少 item' })
+        return
+      }
+      const result = await disableApplied(cfg, log, item, body.roles)
+      const disabledSettings = await getSettings()
+      const snapshot = await buildApplied(cfg, log, disabledSettings)
+      respondJson(res, {
+        ok: true,
+        ...result,
+        global: snapshot.global,
+        node: snapshot.node,
+        warning: snapshot.warning,
+      })
+      return
+    }
+    if (pathname.endsWith('/comfy-url.json')) {
+      respondJson(res, {
+        ok: true,
+        online: await probeComfy(cfg),
+        url: cfg.comfyUrl,
+        panelUrl: (() => { const wf = normalizeWorkflowName(cfg.workflowFile); return `${cfg.comfyUrl}/?dshPanel=1${wf ? `&dshWorkflow=${encodeURIComponent(wf)}` : ''}` })(),
+      })
       return
     }
     if (pathname.endsWith('/status.json')) {
@@ -2035,6 +2432,7 @@ const TOOL_OUTPUT = {
           warnings: { type: 'array', items: { type: 'string' } },
           notes: { type: 'array', items: { type: 'string' } },
           backgroundSuppressed: { type: 'boolean' },
+          appliedGlobal: { type: 'array', items: { type: 'string' } },
         },
       },
     },
@@ -2051,6 +2449,9 @@ const TOOL_OUTPUT = {
     if ((d.weighted ?? []).length > 0) lines.push(`· 权重命中：${d.weighted.slice(0, 8).join('；')}`)
     if ((d.warnings ?? []).length > 0) lines.push(`· ⚠ ${d.warnings.slice(0, 6).join('；')}`)
     if ((d.notes ?? []).length > 0) lines.push(`· ${d.notes.slice(0, 3).join('；')}`)
+    if ((d.appliedGlobal ?? []).length > 0) {
+      lines.push(`· ⚠ 全局套用正在接管本图：${d.appliedGlobal.slice(0, 3).join('；')}（面板「当前套用」里可停用）`)
+    }
     if (d.backgroundSuppressed === true) {
       lines.push('· 注意：默认负向词里有 simple background，会压制「纯色/干净背景」的诉求')
     }
@@ -2170,6 +2571,14 @@ function makeTool(cfg, log, readSettings, writeSettings, onProduced) {
 
       const result = await generateOnce(cfg, log, overridesForRun, {}, signal)
       const diag = summarizeReport(result.report)
+      // 全局套用（服装库 / 角色服装预设）会绕过节点参数接管画面，回执里明确点出来。
+      let appliedGlobal = []
+      try {
+        const snapshot = await buildApplied(cfg, log, settings)
+        appliedGlobal = (snapshot.global ?? []).map((item) => `${item.label}「${item.detail}」`)
+      } catch (error) {
+        log('warn', `读取套用快照失败：${error?.message ?? error}`)
+      }
       // 「纯色/干净背景」这类诉求会被默认负向词里的 simple background 对冲，命中时提示一句。
       const wantsPlainBg = /simple background|plain background|clean background|纯色|干净背景|plain bg/iu.test(extraBody)
       const value = {
@@ -2190,6 +2599,7 @@ function makeTool(cfg, log, readSettings, writeSettings, onProduced) {
           warnings: [...weightWarnings, ...diag.warnings],
           notes: diag.notes,
           backgroundSuppressed: wantsPlainBg && /simple background/iu.test(overridesForRun.negative ?? ''),
+          appliedGlobal,
         },
       }
       try {
@@ -2308,10 +2718,14 @@ export function apply(root, rawConfig) {
       '/api/anima-wardrobe/image.png',
       '/api/anima-wardrobe/generate.json',
       '/api/anima-wardrobe/writeback.json',
+  '/api/anima-wardrobe/sync-from-comfy.json',
       '/api/anima-wardrobe/diag.json',
       '/api/anima-wardrobe/status.json',
       '/api/anima-wardrobe/launch.json',
       '/api/anima-wardrobe/stop.json',
+      '/api/anima-wardrobe/applied.json',
+      '/api/anima-wardrobe/disable.json',
+      '/api/anima-wardrobe/comfy-url.json',
       '/anima-wardrobe/options.json',
       '/anima-wardrobe/refresh.json',
       '/anima-wardrobe/state.json',
@@ -2319,10 +2733,14 @@ export function apply(root, rawConfig) {
       '/anima-wardrobe/image.png',
       '/anima-wardrobe/generate.json',
       '/anima-wardrobe/writeback.json',
+  '/anima-wardrobe/sync-from-comfy.json',
       '/anima-wardrobe/diag.json',
       '/anima-wardrobe/status.json',
       '/anima-wardrobe/launch.json',
       '/anima-wardrobe/stop.json',
+      '/anima-wardrobe/applied.json',
+      '/anima-wardrobe/disable.json',
+      '/anima-wardrobe/comfy-url.json',
     ]
     try {
       ctx.effect(() => {

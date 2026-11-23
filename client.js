@@ -107,6 +107,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
 .aw-row>.aw-grow{flex:1;min-width:0}
 .aw-inline{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
 .aw-inline.aw-dim{opacity:.55}
+.aw-ro{flex:1;min-width:0;font-size:12px;line-height:1.7;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aw-inline>.aw-type{flex:0 0 108px;min-width:0;display:flex}
 .aw-inline>.aw-shift{flex:0 0 62px;min-width:0;display:flex}
 .aw-mode{flex:0 0 auto;border-radius:999px;padding:2px 8px;font:inherit;font-size:10px;cursor:pointer;
@@ -176,6 +177,38 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
 .aw-foot .aw-foot-text{font-weight:600;letter-spacing:.2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aw-foot[data-wide="0"]{justify-content:center;padding:6px 0}
 .aw-foot[data-wide="0"] .aw-foot-text{display:none}
+/* 当前套用 */
+.aw-applied{display:flex;flex-direction:column;gap:3px;margin:2px 0 4px}
+.aw-ap-row{display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.5}
+.aw-ap-badge{flex:0 0 auto;width:12px;text-align:center;color:var(--dsw-alias-state-error-primary)}
+.aw-ap-badge[data-kind="node"]{color:var(--dsw-alias-label-tertiary)}
+.aw-ap-name{flex:0 0 74px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aw-ap-detail{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aw-ap-row>.aw-btn{flex:0 0 auto;font-size:10px;padding:1px 6px}
+.aw-ap-empty{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:2px 0 8px;line-height:1.6}
+.aw-ap-bar{display:flex;gap:6px;margin:8px 0 0}
+/* 随机面板浮层 */
+.aw-fp{position:fixed;z-index:9999;display:flex;flex-direction:column;
+  left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(1320px,92vw);height:min(900px,86vh);
+  background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);
+  border-radius:10px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.45)}
+.aw-fp[data-drag="1"]{transform:none}
+.aw-fp[data-mini="1"]{left:auto;top:auto;right:16px;bottom:16px;width:auto;height:auto;
+  transform:none;background:none;border:0;box-shadow:none;overflow:visible}
+.aw-fp-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;cursor:move;user-select:none;
+  background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
+.aw-fp[data-mini="1"] .aw-fp-bar{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:3px 6px}
+.aw-fp-title{flex:1 1 auto;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aw-fp-wrap{position:relative;flex:1 1 auto;display:flex;min-height:0}
+.aw-fp-frame{flex:1 1 auto;border:0;width:100%;height:100%;background:#1b1b1b;display:block}
+.aw-fp-load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1b1b1b;color:#ffffff;font-size:14px;line-height:2;text-align:center;padding:24px;cursor:pointer}
+.aw-fp-load-hint{font-size:12px;color:#bbbbbb}
+.aw-fp-bridge{margin-left:10px;font-size:11px;color:var(--dsw-alias-label-tertiary);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48ch}
+.aw-fp-load-go{margin-top:12px;display:inline-block;padding:6px 14px;border-radius:6px;background:#3b82f6;color:#fff;font-weight:600;font-size:13px}
+.aw-fp-btn{width:auto;min-width:22px;height:24px;padding:0 8px;font-size:12px;white-space:nowrap;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
+.aw-fp[data-mini="1"] .aw-fp-frame{position:fixed;left:-99999px;top:-99999px;width:1600px;height:1000px}
 `
 
     function installStyles(ctx) {
@@ -238,6 +271,27 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
         title,
         onClick,
       }, on ? '● 生效' : '○ 选择')
+    }
+
+    // 把 ComfyUI 侧桥接（dsh_anima_bridge）上报的节点状态整理成「当前套用」那三行。
+    function nodeRowsFromBridge(raw) {
+      const rows = []
+      if (!raw) return rows
+      if (raw.scenePick === true) {
+        rows.push({ key: 'scene_pick', label: '场景搭配', detail: '整库按档位随机' })
+      }
+      if (raw.forcedScene) {
+        rows.push({ key: 'forced_scene', label: '定点锁定', detail: String(raw.forcedScene) })
+      }
+      if (raw.pickPoolMode || raw.pickPoolIds) {
+        const ids = String(raw.pickPoolIds ?? '')
+        rows.push({
+          key: 'pick_pool',
+          label: '勾选池',
+          detail: `${raw.pickPoolMode || 'pool'}${ids ? ` · ${ids.slice(0, 40)}` : ''}`,
+        })
+      }
+      return rows
     }
 
     function FieldLabel(fieldsByKey, key) {
@@ -321,6 +375,15 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
       const [stopping, setStopping] = useState(false)
       const [presetName, setPresetName] = useState('')
       const [presetPick, setPresetPick] = useState('')
+      // 「当前套用」快照 + 随机面板浮层的三态（closed / open / mini）
+      const [applied, setApplied] = useState(null)
+      const [appliedBusy, setAppliedBusy] = useState('')
+      const [panelMode, setPanelMode] = useState('closed')
+      const [panelUrl, setPanelUrl] = useState('')
+      const [panelNonce, setPanelNonce] = useState(0)
+      // ComfyUI 前端是 160+ 个 chunk 的重应用，嵌在 iframe 里首次加载要十几秒到几十秒，
+      // 期间页面只有它的自带 splash，看着就是纯黑 —— 所以盖一层自己的进度提示。
+      const [panelLoading, setPanelLoading] = useState(false)
 
       // 角色库：作品 IP 下拉 + 该作品下的角色下拉（数据来自 host 的 options.json）。
       const works = Array.isArray(options?.works) ? options.works : []
@@ -345,6 +408,18 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
         }))
       }, [characters, workPick])
 
+      const workLabel = (() => {
+        if (!workPick) return '不限定作品'
+        const hit = works.find((w) => (w.id || w.en) === workPick)
+        return hit ? String(hit.zh || hit.en) : workPick
+      })()
+      const charLabel = (() => {
+        const cur = String(state?.selectedRoles ?? state?.charPick ?? '').trim()
+        if (!cur) return workPick ? '该作品下随机抽角色' : '不指定角色（全库随机）'
+        const hit = characters.find((c) => c.trigger === cur)
+        return hit ? String(hit.zh || hit.name || cur) : cur
+      })()
+
       const timer = useRef(null)
       const pending = useRef(null)
       const stateRef = useRef(null)
@@ -358,6 +433,104 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
         stateRef.current = next
         setState(next)
       }, [])
+
+      // 当前套用快照：全局项（presets 文件里的）与节点项（工作流内存里的）。
+      const loadApplied = useCallback(async () => {
+        try {
+          const body = await getJson(`${BASE}/applied.json`)
+          if (mounted.current) setApplied(body)
+        } catch (err) {
+          reportDiag('applied', err)
+        }
+      }, [])
+
+      const disableAppliedItem = useCallback(async (item, roles) => {
+        setAppliedBusy(item)
+        setError('')
+        try {
+          const payload = Array.isArray(roles) && roles.length ? { item, roles } : { item }
+          const body = await postJson(`${BASE}/disable.json`, payload)
+          if (!mounted.current) return
+          setApplied((prev) => ({
+            ...(prev ?? {}),
+            global: Array.isArray(body.global) ? body.global : (prev?.global ?? []),
+            node: Array.isArray(body.node) ? body.node : (prev?.node ?? []),
+            warning: body.warning ?? prev?.warning ?? '',
+          }))
+          const count = Array.isArray(body.disabled) ? body.disabled.length : 1
+          setMessage(item === 'all' ? `已停用全部全局套用（${count} 项）` : '已停用')
+        } catch (err) {
+          if (mounted.current) setError(String(err?.message ?? err))
+        } finally {
+          if (mounted.current) setAppliedBusy('')
+        }
+      }, [])
+
+      const openRandomPanel = useCallback(async () => {
+        setError('')
+        try {
+          if (!panelUrl) {
+            const body = await getJson(`${BASE}/comfy-url.json`)
+            if (!mounted.current) return
+            setPanelUrl(String(body.panelUrl ?? ''))
+          }
+          if (mounted.current) {
+            setPanelLoading(true)
+            setPanelMode('open')
+          }
+        } catch (err) {
+          if (mounted.current) setError(String(err?.message ?? err))
+        }
+      }, [panelUrl])
+
+      // 浮层改成窗口后可以拖动：按住顶栏移动，位置换算成 left/top，再靠 data-drag 关掉 translate 居中
+  const fpanelRef = useRef(null)
+      const fframeRef = useRef(null)
+  const fdragRef = useRef(null)
+  const [panelPos, setPanelPos] = useState(null)
+  const [bridge, setBridge] = useState(null)
+  const onBarDown = useCallback((event) => {
+    if (event.target && typeof event.target.closest === 'function' && event.target.closest('button')) return
+    const el = fpanelRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    fdragRef.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top }
+    setPanelPos({ left: rect.left, top: rect.top })
+    event.preventDefault()
+  }, [])
+  useEffect(() => {
+    const onMove = (event) => {
+      const drag = fdragRef.current
+      if (!drag) return
+      const left = Math.max(0, Math.min(window.innerWidth - 160, event.clientX - drag.dx))
+      const top = Math.max(0, Math.min(window.innerHeight - 80, event.clientY - drag.dy))
+      setPanelPos({ left, top })
+    }
+    const onUp = () => { fdragRef.current = null }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+  const openPanelInNewWindow = useCallback(() => {
+        const go = (target) => {
+          if (!target) return
+          try {
+            window.open(target, '_blank', 'noopener,noreferrer')
+          } catch (err) {
+            setError(String(err?.message ?? err))
+          }
+        }
+        if (panelUrl) {
+          go(panelUrl)
+          return
+        }
+        void getJson(`${BASE}/comfy-url.json`)
+          .then((body) => go(String(body.panelUrl ?? '')))
+          .catch((err) => setError(String(err?.message ?? err)))
+      }, [panelUrl])
 
       const loadImages = useCallback(async () => {
         try {
@@ -388,9 +561,34 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
           if (mounted.current) setError(String(err?.message ?? err))
         }
         await loadImages()
-      }, [loadImages, applyState])
+        void loadApplied()
+      }, [loadImages, applyState, loadApplied])
 
       useEffect(() => { loadAll() }, [loadAll])
+
+      // ComfyUI 侧桥接（dsh_anima_bridge）上报的节点项，比轮询 /history 更即时。
+      useEffect(() => {
+        const onMessage = (event) => {
+          const payload = event?.data
+          if (!payload || payload.source !== 'dsh-anima-bridge') return
+          if (payload.type === 'aw:hello') {
+            setBridge({ type: 'hello', detail: String(payload.search ?? '') })
+            return
+          }
+          if (payload.type === 'aw:opened') {
+            setBridge({ type: 'opened', detail: String(payload.how ?? '') })
+            return
+          }
+          if (payload.type === 'aw:error') {
+            setBridge({ type: 'error', detail: String(payload.detail ?? '') })
+            return
+          }
+          if (payload.type !== 'aw:state' || !payload.data) return
+          setApplied((prev) => ({ ...(prev ?? {}), node: nodeRowsFromBridge(payload.data) }))
+        }
+        window.addEventListener('message', onMessage)
+        return () => window.removeEventListener('message', onMessage)
+      }, [])
 
       // 可见时才轮询出图目录。
       useEffect(() => {
@@ -543,17 +741,25 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
         try {
           const result = await postJson(`${BASE}/generate.json`, { settings: state })
           if (!mounted.current) return
-          setMessage(`出图完成：${result.seconds}s，seed ${result.seed}`)
           setIndex(0)
           await loadImages()
+          let wbNote = ''
+          try {
+            const wb = await postJson(`${BASE}/writeback.json`, {})
+            wbNote = `；已写回 ${(wb.changed ?? []).length} 项`
+          } catch (error) {
+            wbNote = `；写回失败：${String(error?.message ?? error)}`
+          }
+          if (mounted.current) setMessage(`出图完成：${result.seconds}s，seed ${result.seed}${wbNote}`)
           const fresh = await getJson(`${BASE}/state.json`)
           if (mounted.current && fresh?.state) applyState(fresh.state)
+          void loadApplied()
         } catch (err) {
           if (mounted.current) setError(`出图失败：${err?.message ?? err}`)
         } finally {
           if (mounted.current) setBusy(false)
         }
-      }, [state, loadImages, applyState])
+      }, [state, loadImages, applyState, loadApplied])
 
       const writeBack = useCallback(async () => {
         setError('')
@@ -566,6 +772,66 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
           if (mounted.current) setError(`写回失败：${err?.message ?? err}`)
         }
       }, [])
+
+      // 关闭 / 缩小时从 ComfyUI 那份工作流读回一次（面板以工作流为准）
+      const syncFromComfy = useCallback(async () => {
+        try {
+          const body = await postJson(`${BASE}/sync-from-comfy.json`, {})
+          if (!body?.ok) {
+            if (mounted.current && body?.reason) setError(String(body.reason))
+            return
+          }
+          if (body.state) applyState(body.state)
+          if (mounted.current) setMessage(`已从 ComfyUI 工作流读回（${String(body.source ?? '').split(/[\\/]/u).pop()}）`)
+          void loadApplied()
+        } catch (error) {
+          if (mounted.current) setError(`读回工作流失败：${String(error?.message ?? error)}`)
+        }
+      }, [applyState, loadApplied])
+
+      /* ---- 让 iframe 里的 ComfyUI 先保存工作流，再读回面板 ---- */
+
+      const askBridgeSave = useCallback(
+        () =>
+          new Promise((resolve) => {
+            const frame = fframeRef.current
+            const win = frame?.contentWindow
+            if (!win) {
+              resolve(false)
+              return
+            }
+            let settled = false
+            const onMessage = (event) => {
+              const data = event?.data
+              if (!data || data.source !== 'dsh-anima-bridge') return
+              if (data.type === 'aw:saved') finish(true)
+              else if (data.type === 'aw:save-fail') finish(false)
+            }
+            const finish = (ok) => {
+              if (settled) return
+              settled = true
+              window.removeEventListener('message', onMessage)
+              resolve(ok)
+            }
+            window.addEventListener('message', onMessage)
+            try {
+              win.postMessage({ source: 'dsh-anima-host', type: 'aw:save' }, '*')
+            } catch {
+              finish(false)
+              return
+            }
+            setTimeout(() => finish(false), 8000)
+          }),
+        [],
+      )
+
+      const saveThenSync = useCallback(async () => {
+        const saved = await askBridgeSave()
+        if (!saved && mounted.current) {
+          setBridge({ type: 'error', detail: '随机面板里的改动没能保存，读到的可能是上次保存的值' })
+        }
+        await syncFromComfy()
+      }, [askBridgeSave, syncFromComfy])
 
       /* ---- LoRA ---- */
 
@@ -1008,33 +1274,13 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
 
           h(Section, { title: 'Anima 参数' },
             h(Row, { label: '作品 IP' },
-              h('div', { className: `aw-inline${roleMode === 'work' ? '' : ' aw-dim'}` },
-                h(Picker, {
-                  value: workPick,
-                  items: workItems,
-                  placeholder: works.length ? '不限定作品' : '角色库未加载',
-                  disabled: !works.length,
-                  onChange: (value) => patch({ workPick: value, charPick: '', roleMode: value ? 'work' : 'role' }),
-                }),
-                h(ModeButton, {
-                  on: roleMode === 'work',
-                  title: '让「限定作品 IP」生效，同时角色选择不参与',
-                  onClick: () => patch({ roleMode: 'work' }),
-                }))),
+              h('div', { className: 'aw-inline' },
+                h('div', { className: 'aw-ro', title: '由随机面板控制，这里只显示当前值' }, workLabel),
+                h('button', { className: 'aw-btn', 'data-variant': 'ghost', onClick: () => openRandomPanel() }, '去改'))),
             h(Row, { label: '角色' },
-              h('div', { className: `aw-inline${roleMode === 'role' ? '' : ' aw-dim'}` },
-                h(Picker, {
-                  value: state.charPick ?? '',
-                  items: charItems,
-                  placeholder: workPick ? '该作品下随机' : (characters.length ? '不指定角色' : '角色库未加载'),
-                  disabled: !characters.length,
-                  onChange: (value) => patch({ charPick: value, roleMode: 'role' }),
-                }),
-                h(ModeButton, {
-                  on: roleMode === 'role',
-                  title: '让「已选角色」生效，同时作品 IP 限定不参与',
-                  onClick: () => patch({ roleMode: 'role' }),
-                }))),
+              h('div', { className: 'aw-inline' },
+                h('div', { className: 'aw-ro', title: '由随机面板控制，这里只显示当前值' }, charLabel),
+                h('button', { className: 'aw-btn', 'data-variant': 'ghost', onClick: () => openRandomPanel() }, '去改'))),
             h(Row, { label: '特征' },
               h('label', { className: 'aw-check' },
                 h('input', {
@@ -1091,11 +1337,65 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
                 onChange: (event) => patch({ extraBody: event.target.value }),
               }))),
 
+          h(Section, {
+            title: '当前套用',
+            note: applied ? `${(applied.global?.length ?? 0) + (applied.node?.length ?? 0)} 项` : '',
+          },
+            (() => {
+              if (!applied) return h('div', { className: 'aw-ap-empty' }, '读取中…')
+              const globals = Array.isArray(applied.global) ? applied.global : []
+              const nodes = Array.isArray(applied.node) ? applied.node : []
+              if (!globals.length && !nodes.length) {
+                return h('div', null,
+                  h('div', { className: 'aw-ap-empty' }, applied.warning || '当前没有固定套用，服装与场景都走随机。'),
+                  h('div', { className: 'aw-ap-bar' },
+                    h('button', { className: 'aw-btn', 'data-variant': 'primary', onClick: () => openRandomPanel() }, '打开随机面板')))
+              }
+              return h('div', null,
+                h('div', { className: 'aw-applied' },
+                  globals.map((item) => h('div', { className: 'aw-ap-row', key: `g-${item.key}` },
+                    h('span', { className: 'aw-ap-badge', title: '全局项：写在 presets 文件里，影响所有出图' }, '⚠'),
+                    h('span', { className: 'aw-ap-name', title: item.label }, item.label),
+                    h('span', { className: 'aw-ap-detail', title: item.detail }, item.detail),
+                    h('button', {
+                      type: 'button',
+                      className: 'aw-btn',
+                      'data-variant': 'ghost',
+                      disabled: appliedBusy !== '',
+                      title: '从 presets 文件里关掉这一项',
+                      onClick: () => disableAppliedItem(item.disable?.item ?? item.key, item.roles),
+                    }, appliedBusy === (item.disable?.item ?? item.key) ? '停用中…' : '停用'))),
+                  nodes.length
+                    ? h('div', { className: 'aw-hint', style: { margin: '4px 0 2px' } }, '以下只在 ComfyUI 工作流里生效，需去弹窗停用：')
+                    : null,
+                  nodes.map((item) => h('div', { className: 'aw-ap-row', key: `n-${item.key}` },
+                    h('span', { className: 'aw-ap-badge', 'data-kind': 'node' }, '·'),
+                    h('span', { className: 'aw-ap-name', title: item.label }, item.label),
+                    h('span', { className: 'aw-ap-detail', title: item.detail }, item.detail),
+                    h('button', {
+                      type: 'button',
+                      className: 'aw-btn',
+                      'data-variant': 'ghost',
+                      title: '打开随机面板去停用',
+                      onClick: () => openRandomPanel(),
+                    }, '去停用')))),
+                h('div', { className: 'aw-ap-bar' },
+                  h('button', { className: 'aw-btn', 'data-variant': 'primary', onClick: () => openRandomPanel() }, '打开随机面板'),
+                  globals.length
+                    ? h('button', {
+                      className: 'aw-btn',
+                      'data-variant': 'ghost',
+                      disabled: appliedBusy !== '',
+                      onClick: () => disableAppliedItem('all'),
+                    }, appliedBusy === 'all' ? '停用中…' : '一键停用全部')
+                    : null))
+            })()),
+
           h('div', { className: 'aw-actions' },
             h('button', {
               className: 'aw-btn', 'data-variant': 'primary', disabled: busy || !online, onClick: generate,
             }, busy ? h('span', { className: 'aw-busy' }, h('span', { className: 'aw-spin' }), '出图中…') : '生成一张'),
-            h('button', { className: 'aw-btn', onClick: () => flush() }, '立即保存'),
+            h('button', { className: 'aw-btn', onClick: async () => { await flush(); void writeBack() } }, '立即保存'),
             h('button', { className: 'aw-btn', 'data-variant': 'ghost', onClick: writeBack }, '写回工作流 JSON')),
 
           message ? h('div', { className: 'aw-ok' }, message) : null,
@@ -1130,7 +1430,70 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__ && typeof window.__
             target: '_blank',
             rel: 'noreferrer',
             title: '在新标签页打开 ComfyUI 界面',
-          }, '打开 ComfyUI 界面')))
+          }, '打开 ComfyUI 界面')),
+
+        panelMode === 'closed' ? null : h('div', {
+          ref: fpanelRef,
+          className: 'aw-fp',
+          'data-mini': panelMode === 'mini' ? '1' : '0',
+          'data-drag': panelPos && panelMode === 'open' ? '1' : '0',
+          style: panelPos && panelMode === 'open' ? { left: `${panelPos.left}px`, top: `${panelPos.top}px` } : undefined,
+        },
+          h('div', { className: 'aw-fp-bar', onMouseDown: onBarDown },
+            h('span', { className: 'aw-fp-title' },
+              panelMode === 'mini' ? 'Anima' : '随机提示词面板（ComfyUI 原版）'),
+            panelMode === 'mini' ? null : h('span', {
+              className: 'aw-fp-bridge',
+              title: bridge ? `桥接：${bridge.type} ${bridge.detail}` : '还没收到 ComfyUI 侧桥接的消息',
+            }, bridge?.type === 'opened' ? '桥接 · 面板已开'
+              : bridge?.type === 'hello' ? '桥接 · 已连'
+                : bridge?.type === 'error' ? `桥接 · ${bridge.detail}`
+                  : '桥接 · 等待'),
+            panelMode === 'mini'
+              ? h('button', {
+                type: 'button', className: 'aw-icon-btn aw-fp-btn', title: '放大还原',
+                onClick: () => setPanelMode('open'),
+              }, '放大')
+              : h('button', {
+                type: 'button', className: 'aw-icon-btn aw-fp-btn', title: '重新载入面板',
+                onClick: () => setPanelNonce((n) => n + 1),
+              }, '重载'),
+            panelMode === 'mini'
+              ? null
+              : h('button', {
+                type: 'button', className: 'aw-icon-btn aw-fp-btn', title: '在浏览器新窗口打开（嵌不动时用这个）',
+                onClick: () => openPanelInNewWindow(),
+              }, '新窗口'),
+            panelMode === 'mini'
+              ? null
+              : h('button', {
+                type: 'button', className: 'aw-icon-btn aw-fp-btn', title: '最小化（保留状态）',
+                onClick: async () => { await saveThenSync(); setPanelMode('mini') },
+              }, '最小化'),
+            h('button', {
+              type: 'button', className: 'aw-icon-btn aw-fp-btn', title: '彻底关闭并释放内存',
+              onClick: async () => { await saveThenSync(); setPanelUrl(''); setPanelMode('closed') },
+            }, '关闭')),
+          h('div', { className: 'aw-fp-wrap' },
+            h('iframe', {
+              key: `fp-${panelNonce}`,
+              className: 'aw-fp-frame', ref: fframeRef,
+              src: panelUrl || 'about:blank',
+              title: 'Anima 随机面板',
+              onLoad: () => {
+                if (mounted.current) setPanelLoading(false)
+              },
+            }),
+            panelLoading && panelMode === 'open'
+              ? h('div', { className: 'aw-fp-load', onClick: () => openPanelInNewWindow() },
+                h('div', null,
+                  h('div', null, '正在加载 ComfyUI 界面…'),
+                  h('div', { className: 'aw-fp-load-hint' },
+                    '它是几百个 chunk 的重前端，第一次需要 10–40 秒。'),
+                  h('div', { className: 'aw-fp-load-hint' },
+                    '一直黑屏说明嵌不进来。'),
+                  h('div', { className: 'aw-fp-load-go' }, '点这里用新窗口打开')))
+              : null)))
     }
 
     /* ------------------------------------------------------------------- 注册 ---- */
